@@ -173,6 +173,8 @@ class _FakeRoutedNotifier:
                 NotificationChannel.WECHAT,
                 NotificationChannel.TELEGRAM,
                 NotificationChannel.EMAIL,
+                NotificationChannel.NTFY,
+                NotificationChannel.GOTIFY,
             ]
         )
         self.get_channels_for_route = MagicMock(return_value=list(routed_channels))
@@ -197,6 +199,8 @@ class _FakeRoutedNotifier:
         self.send_to_telegram = MagicMock(return_value=True)
         self._send_email_with_inline_image = MagicMock(return_value=True)
         self.send_to_email = MagicMock(return_value=True)
+        self.send_to_ntfy = MagicMock(return_value=True)
+        self.send_to_gotify = MagicMock(return_value=True)
 
     @staticmethod
     def _generate_dashboard_report(results):
@@ -218,6 +222,8 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
                 NotificationChannel.WECHAT,
                 NotificationChannel.TELEGRAM,
                 NotificationChannel.EMAIL,
+                NotificationChannel.NTFY,
+                NotificationChannel.GOTIFY,
             ],
         )
         pipeline.notifier.send_to_telegram.assert_called_once_with("report:000001")
@@ -244,6 +250,40 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
         mock_md2img.assert_not_called()
         pipeline.notifier.send_to_email.assert_called_once_with("report:000001")
         pipeline.notifier.send_to_telegram.assert_not_called()
+
+    def test_ntfy_route_uses_text_report_without_image_conversion(self):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.notifier = _FakeRoutedNotifier(
+            [NotificationChannel.NTFY],
+            image_channels={"ntfy"},
+        )
+        pipeline.config = SimpleNamespace(stock_email_groups=[])
+        results = [SimpleNamespace(code="000001")]
+
+        with patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+            pipeline._send_notifications(results, ReportType.SIMPLE)
+
+        mock_md2img.assert_not_called()
+        pipeline.notifier.send_to_ntfy.assert_called_once_with("report:000001")
+        pipeline.notifier._send_email_with_inline_image.assert_not_called()
+        pipeline.notifier._send_telegram_photo.assert_not_called()
+
+    def test_gotify_route_uses_text_report_without_image_conversion(self):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.notifier = _FakeRoutedNotifier(
+            [NotificationChannel.GOTIFY],
+            image_channels={"gotify"},
+        )
+        pipeline.config = SimpleNamespace(stock_email_groups=[])
+        results = [SimpleNamespace(code="000001")]
+
+        with patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+            pipeline._send_notifications(results, ReportType.SIMPLE)
+
+        mock_md2img.assert_not_called()
+        pipeline.notifier.send_to_gotify.assert_called_once_with("report:000001")
+        pipeline.notifier._send_email_with_inline_image.assert_not_called()
+        pipeline.notifier._send_telegram_photo.assert_not_called()
 
     def test_noise_suppression_happens_before_markdown_to_image(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
