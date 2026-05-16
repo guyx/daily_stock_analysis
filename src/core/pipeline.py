@@ -46,6 +46,8 @@ from src.report_language import (
 )
 from src.search_service import SearchService
 from src.services.social_sentiment_service import SocialSentimentService
+from src.services.quant_hub_context_service import QuantHubContextService
+from src.market_context import detect_market
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.trading_calendar import (
@@ -162,6 +164,25 @@ class StockAnalysisPipeline:
                 exc_info=True,
             )
             self.social_sentiment_service = None
+
+        # 初始化 Quant Hub 数据基座增强（仅 A 股，可选）
+        try:
+            self.quant_hub_service = QuantHubContextService(
+                data_root=self.config.quant_hub_data_root,
+                max_stale_days=self.config.quant_hub_max_stale_days,
+            )
+            if self.quant_hub_service.is_available:
+                logger.info(
+                    "Quant Hub context service enabled (A-shares, data_root=%s)",
+                    self.config.quant_hub_data_root,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Quant Hub 数据基座增强初始化失败，将跳过 A 股量化补充: %s",
+                exc,
+                exc_info=True,
+            )
+            self.quant_hub_service = None
 
     def _emit_progress(self, progress: int, message: str) -> None:
         """Best-effort bridge from pipeline stages to task SSE progress."""
@@ -457,14 +478,32 @@ class StockAnalysisPipeline:
             
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
-                context, 
-                realtime_quote, 
+                context,
+                realtime_quote,
                 chip_data,
                 trend_result,
                 stock_name,  # 传入股票名称
                 fundamental_context,
             )
-            
+
+            # Step 6.5: Quant Hub 量化数据补充（仅 A 股，可选）
+            if (
+                self.quant_hub_service is not None
+                and self.quant_hub_service.is_available
+                and detect_market(code) == "cn"
+            ):
+                try:
+                    quant_hub_md = self.quant_hub_service.get_quant_hub_context(code)
+                    if quant_hub_md:
+                        enhanced_context["quant_hub"] = quant_hub_md
+                        logger.info(
+                            f"{stock_name}({code}) Quant Hub context injected ({len(quant_hub_md)} chars)"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"{stock_name}({code}) Quant Hub context fetch failed: {e}"
+                    )
+
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             llm_progress_state = {"last_progress": 64}
 

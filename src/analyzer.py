@@ -2696,6 +2696,19 @@ class GeminiAnalyzer:
 未搜索到该股票近期的相关新闻。请主要依据技术面数据进行分析。
 """
 
+        # 注入 Quant Hub 量化数据补充（仅当 A 股且配置了 QUANT_HUB_DATA_ROOT 时存在）
+        quant_hub_md = context.get('quant_hub')
+        if quant_hub_md:
+            prompt += f"""
+---
+
+## 📊 量化数据补充
+
+> 来自本地 Quantitative_Data_Hub 数据基座（A 股，T-1 起算），与上方实时行情互补，请用于交叉验证基本面、资金面与公司行为信号。
+
+{quant_hub_md}
+"""
+
         # 注入缺失数据警告
         if context.get('data_missing'):
             prompt += """
